@@ -1,0 +1,8 @@
+- name: Ping (a) host(s)
+  hosts: all
+  become: yes
+  remote_user: root
+
+  tasks:
+  - name: Reboot host
+    ansible.builtin.ping:

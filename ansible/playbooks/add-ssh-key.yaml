@@ -1,0 +1,30 @@
+# Description: Had to get funky with this one.
+#   This script expects that you have OOBE'd your server using Ubuntu's wizard,
+#   and now have your dev vm's SSH key in a non-admin account.
+#   It will, using a sudo password, add an ansible managemnet key to the root account.
+#   It's really only useful if you have a lot of new nodes, but then it saves buckets of time.
+# Run with `ansible-playbook -i IP, add-ssh-key.yaml`
+# The "," after IP is important! 
+
+- name: Add ansible management key to root using escalation
+  hosts: all
+  become: yes
+  become_user: root
+  vars_prompt:
+    - name: "ansible_become_pass"
+      prompt: "Sudo password (saved in RAM during run)"
+      private: yes
+  tasks:
+    - name: Add key
+      ansible.posix.authorized_key:        
+        user: root
+        state: present
+        key: "{{ lookup('file', '~/.ssh/id_ed25519_ansible.pub') }}"
+
+    - name: Enable Root Login
+      lineinfile:
+        dest: /etc/ssh/sshd_config
+        regexp: '^PermitRootLogin'
+        line: "PermitRootLogin prohibit-password"
+        state: present
+        backup: yes
