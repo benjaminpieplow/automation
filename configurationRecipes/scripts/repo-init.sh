@@ -1,3 +1,7 @@
+# Initialize a new Git Repo from scratch
+# Benjamin Rohner
+# 2024-03-27
+
 git init .
 git add .
 git commit
