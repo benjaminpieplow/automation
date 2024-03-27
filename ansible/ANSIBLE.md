@@ -13,4 +13,5 @@ This gets its own folder, because it's more of an application toolkit; it does *
 ```
 sudo apt install pipx -y
 pipx install --include-deps ansible
+pipx ensurepath
 ```
