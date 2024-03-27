@@ -24,3 +24,11 @@ These have variables that need to be edited, that I was too lazy to parameterize
 
 ## scripts
 These will probably work fine, or have some basic error handling to keep them from breaking everything.
+
+# vyos
+This one's pretty cool.
+
+For reasons likely related to monies, getting a stable VyOS build is hard. So, they make you [build it yourself](https://docs.vyos.io/en/latest/contributing/build-vyos.html), which is also hard. This script will do that leg work for you, expects Docker and not much else. I gave it its own folder, and did some hax to the `.gitignore`, so the script would be the only thing caught by version control.
+```
+. vyos/build-vyos.sh
+```
