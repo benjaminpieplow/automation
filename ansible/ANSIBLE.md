@@ -14,4 +14,12 @@ This gets its own folder, because it's more of an application toolkit; it does *
 sudo apt install pipx -y
 pipx install --include-deps ansible
 pipx ensurepath
+# Install pip
+sudo apt install python3-pip
+```
+## Install dependencies
+[Via](https://docs.ansible.com/ansible/latest/installation_guide/intro_installation.html#installing-extra-python-dependencies), 
+
+```
+pipx inject ansible proxmoxer
 ```
