@@ -1,2 +1,3 @@
-/vyos/**
+/vyos/output
+/vyos/output/**
 !build-vyos.sh
