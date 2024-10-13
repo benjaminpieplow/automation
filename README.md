@@ -28,6 +28,8 @@ Where,
 
 `/.ssh/` has *your* SSH keys, for example, to push to GitHub.
 
+`common` is provided as a template for copy-paste convenience.
+
 # Folders
 This changes from time to time; I'll try to keep it updated. Ideally, this toolset is meant to be run from the root folder, this avoids relying too heavily on `../` but it's not possible to implement that all the time.
 

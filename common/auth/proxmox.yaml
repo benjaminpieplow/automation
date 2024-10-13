@@ -1,0 +1,5 @@
+host_foo:
+  api_token_id: host_foo-2020-02-20
+  api_user: root@pam
+  api_token_secret: AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE
+  api_host: foo.bar.com
