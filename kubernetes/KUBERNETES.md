@@ -23,7 +23,7 @@ These are config files the Ansible playbooks need to reference/provision during 
 These are Ansible playbooks to either build or update a kubernetes cluster. They are run on the worker nodes.
 
 # New node
-This had to be done with two playbooks and a command to avoid annoying prompts/errors.
+This had to be done with two playbooks and a command to avoid annoying prompts/errors. This guide assumes you have already provisioned the cluster nodes, and they are able to communicate with one another. See 
 
 ## Node Prep
 

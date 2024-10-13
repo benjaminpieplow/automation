@@ -1,5 +1,6 @@
-host_foo:
-  api_token_id: host_foo-2020-02-20
+cluster_foo:
+  api_token_id: foomox1-2020-02-20
   api_user: root@pam
   api_token_secret: AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE
-  api_host: foo.bar.com
+  api_host: foomox1.bar.com
+  node_name: foomox1
