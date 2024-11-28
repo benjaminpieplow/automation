@@ -42,7 +42,7 @@ Ansible playbooks for common administration tasks.
 ### kubernetes
 Can provision an Ubuntu 22.04 Server > ready-to-join Kubernetes node. This is a *tool*; additional documentation is in the folder.
 
-# bash
+## bash
 These range from a collection of commands looped into a `.sh`, to actual scripts that I plan on writing. They help with annoying tasks that I do often. These aren't great, because my bash is pretty bad (I get paid to write PowerShell, and in comparison BASH is a hard sell), but they're better than nothing.
 
 ## norun-scripts

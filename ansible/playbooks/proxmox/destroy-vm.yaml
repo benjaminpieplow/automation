@@ -1,0 +1,44 @@
+
+- name: Destroy a VM
+  hosts: localhost
+  vars_prompt:
+  - name: proxmox_node_name
+    private: false
+    prompt: Name of the proxmox node from the common/auth/proxmox.yaml
+
+  - name: vmid
+    private: false
+    prompt: ID of the VM to destroy
+
+  tasks:
+    - name: Gather login data
+      ansible.builtin.include_vars:
+        file: "{{ ansible_env.HOME }}/common/auth/proxmox.yaml"
+        name: proxmox_auth
+
+    - name: Stop VM with force
+      community.general.proxmox_kvm:
+        # Auth info
+        api_token_id: "{{ proxmox_auth[proxmox_node_name].api_token_id }}"
+        api_user: "{{ proxmox_auth[proxmox_node_name].api_user }}"
+        api_token_secret: "{{ proxmox_auth[proxmox_node_name].api_token_secret }}"
+        api_host: "{{ proxmox_auth[proxmox_node_name].api_host }}"
+        node: "{{ proxmox_node_name }}"
+        
+        # VM General
+        vmid: "{{ vmid }}"
+        state: stopped
+        force: true
+
+    - name: Remove  Virtual Machine
+      community.general.proxmox_kvm:
+        # Auth info
+        api_token_id: "{{ proxmox_auth[proxmox_node_name].api_token_id }}"
+        api_user: "{{ proxmox_auth[proxmox_node_name].api_user }}"
+        api_token_secret: "{{ proxmox_auth[proxmox_node_name].api_token_secret }}"
+        api_host: "{{ proxmox_auth[proxmox_node_name].api_host }}"
+        node: "{{ proxmox_node_name }}"
+
+        # VM General
+        vmid: "{{ vmid }}"
+        state: absent

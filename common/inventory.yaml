@@ -12,7 +12,7 @@ all:
           ansible_host: 10.0.0.104
       vars:
         ansible_user: root
-        ansible_private_key_file: "{{ lookup('env', 'USER') }}/.kube/id_ed25519"
+        ansible_private_key_file: "/home/{{ lookup('env', 'USER') }}/.kube/id_ed25519"
     proxbar1:
       hosts:
         proxbar1:

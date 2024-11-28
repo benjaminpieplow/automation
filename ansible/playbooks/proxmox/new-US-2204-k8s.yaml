@@ -1,0 +1,112 @@
+# Author: Benjamin Rohner
+# Date: 2024-10-13
+# Purpose: Creates a k8s-ready VM in Proxmox
+
+- name: Create New K8s VM
+  hosts: localhost
+  vars_prompt:
+  - name: proxmox_node_name
+    private: false
+    prompt: Name of the proxmox node from the common/auth/proxmox.yaml
+
+  - name: vm_ram_max
+    private: false
+    prompt: Max balooning RAM
+
+  - name: vm_ram_startup
+    private: false
+    prompt: Startup RAM
+
+  - name: vm_name
+    private: false
+    prompt: Name of the VM
+    
+  tasks:
+    - name: Gather login data
+      ansible.builtin.include_vars:
+        file: "{{ ansible_env.HOME }}/common/auth/proxmox.yaml"
+        name: proxmox_auth
+
+    - name: Provision Virtual Machine
+      community.general.proxmox_kvm:
+        # Auth info
+        api_token_id: "{{ proxmox_auth[proxmox_node_name].api_token_id }}"
+        api_user: "{{ proxmox_auth[proxmox_node_name].api_user }}"
+        api_token_secret: "{{ proxmox_auth[proxmox_node_name].api_token_secret }}"
+        api_host: "{{ proxmox_auth[proxmox_node_name].api_host }}"
+        node: "{{ proxmox_node_name }}"
+
+        # VM General
+        name: "{{ vm_name }}"
+        clone: "ubuntu-jammy-cloudinit-template"
+        onboot: false
+        vmid:
+        ostype: l26
+        tags:
+          - ansible
+          - k8s
+
+        # CPU
+        cpu: x86-64-v2-AES
+        sockets: 1
+        cores: 4
+
+        # Memory
+        memory: "{{ vm_ram_max }}"
+        balloon: "{{ vm_ram_startup }}"
+
+        # Networking
+        net:
+          net0: 'virtio,bridge=vmbr0,tag=8'
+
+
+        # Storage
+        ide:
+          # ide0: "local/ubuntu-22.04.4-live-server-amd64.iso:size,format=value"
+          # ide2: "local:iso/ubuntu-22.04.4-live-server-amd64.iso,media=cdrom"
+        scsihw: 'virtio-scsi-single'
+        scsi:
+          scsi0: "local-lvm:32,format=raw,iothread=1"
+          
+
+        # Services
+        bios: ovmf
+        efidisk0:
+          storage: local-lvm
+          efitype: 4m
+          format: raw
+          pre_enrolled_keys: 1
+        tpmstate0:
+          storage: local-lvm
+          version: "2.0"
+        numa_enabled: true
+
+
+    - name: Start VM 
+      community.general.proxmox_kvm:
+        # Auth info
+        api_token_id: "{{ proxmox_auth[proxmox_node_name].api_token_id }}"
+        api_user: "{{ proxmox_auth[proxmox_node_name].api_user }}"
+        api_token_secret: "{{ proxmox_auth[proxmox_node_name].api_token_secret }}"
+        api_host: "{{ proxmox_auth[proxmox_node_name].api_host }}"
+        node: "{{ proxmox_node_name }}"
+        name: "{{ vm_name }}"
+        state: started
+    
+    - name: Sleep
+      ansible.builtin.wait_for:
+        # Yes, it's trash, sue me. CloudInit boots with hostname "ubuntu", which it sends to DHCP, which registers it in DNS
+        # I need to reboot the VM after cloudinit is done so it updates the DNS cache, but can't "check" cloud init in the VM
+        # So stop complaining and get a coffee.
+        timeout: 360  # 300 is NOT enough
+
+    - name: Restart VM 
+      community.general.proxmox_kvm:
+        # Auth info
+        api_token_id: "{{ proxmox_auth[proxmox_node_name].api_token_id }}"
+        api_user: "{{ proxmox_auth[proxmox_node_name].api_user }}"
+        api_token_secret: "{{ proxmox_auth[proxmox_node_name].api_token_secret }}"
+        api_host: "{{ proxmox_auth[proxmox_node_name].api_host }}"
+        node: "{{ proxmox_node_name }}"
+        name: "{{ vm_name }}"
+        state: restarted

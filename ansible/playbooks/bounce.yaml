@@ -1,7 +1,5 @@
 - name: Reboot (a) hosts
   hosts: all
-  become: yes
-  remote_user: root
 
   tasks:
   - name: Reboot host
