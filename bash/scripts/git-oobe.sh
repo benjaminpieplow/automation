@@ -11,3 +11,4 @@ branchName=${branchName:-main}
 git config --global user.email "$email"
 git config --global user.name "$fullName"
 git config --global init.defaultBranch $branchName
+git config pull.rebase false

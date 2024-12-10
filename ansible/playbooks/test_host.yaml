@@ -1,8 +1,10 @@
+# Author: Benjamin Rohner
+# Date: 2024-10-13
+# Purpose: Creates a k8s-ready VM in Proxmox
+
 - name: Ping (a) host(s)
   hosts: all
-  become: yes
   remote_user: root
-
   tasks:
   - name: Reboot host
     ansible.builtin.ping:

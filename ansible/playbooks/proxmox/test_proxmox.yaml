@@ -1,0 +1,20 @@
+# Get a list of nodes in a cluster. Very useful for testing ansible
+
+- name: List existing nodes
+  hosts: "local"
+  vars_prompt:
+  - name: proxmox_node_name
+    private: false
+    prompt: Name of the proxmox node from the common/auth/proxmox.yaml
+  tasks:
+  - name: Gather login data
+    ansible.builtin.include_vars:
+      file: "{{ ansible_env.HOME }}/common/auth/proxmox.yaml"
+      name: proxmox_auth
+  - name: List existing nodes
+    community.general.proxmox_node_info:
+      api_token_id: "{{ proxmox_auth[proxmox_node_name].api_token_id }}"
+      api_user: "{{ proxmox_auth[proxmox_node_name].api_user }}"
+      api_token_secret: "{{ proxmox_auth[proxmox_node_name].api_token_secret }}"
+      api_host: "{{ proxmox_auth[proxmox_node_name].api_host }}"
+    register: proxmox_nodes
