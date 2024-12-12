@@ -30,6 +30,7 @@
         - ca-certificates
         - curl
         - software-properties-common
+        - nfs-common
       state: latest
 
   # Add cri-o and K8s Repos
@@ -37,6 +38,7 @@
     tags:
       - oobe
       - update
+      - keyfetch
     block:
       - name: Add k8s key
         ansible.builtin.get_url:
@@ -52,6 +54,7 @@
     tags:
       - oobe
       - update
+      - keyfetch
     block:
       - name: Add cri-o key
         ansible.builtin.get_url:
