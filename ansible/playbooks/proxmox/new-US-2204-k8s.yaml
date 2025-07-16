@@ -20,6 +20,14 @@
   - name: vm_name
     private: false
     prompt: Name of the VM
+
+  - name: vm_id
+    private: false
+    prompt: VMID (auto not supported)
+
+  - name: vm_nic0_vlan
+    private: false
+    prompt: VLAN ID for main NIC (no tag not supported)
     
   tasks:
     - name: Gather login data
@@ -40,7 +48,7 @@
         name: "{{ vm_name }}"
         clone: "ubuntu-jammy-cloudinit-template"
         onboot: false
-        vmid:
+        newid: "{{ vm_id }}"
         ostype: l26
         tags:
           - ansible
@@ -57,7 +65,7 @@
 
         # Networking
         net:
-          net0: 'virtio,bridge=vmbr0,tag=8'
+          net0: 'virtio,bridge=vmbr0,tag={{ vm_nic0_vlan }}'
 
 
         # Storage
