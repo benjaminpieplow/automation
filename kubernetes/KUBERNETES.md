@@ -354,7 +354,8 @@ This guide expects that you have an NFS share already, which,
 
 - can be accessed from all of your nodes
 - the cluster has read-write permissions to
-- `nfs-utils` installed on nodes (done if using the node prep playbook)
+- allows non-root users to mount (or, [read](https://stackoverflow.com/questions/34113569/kubernetes-nfs-volume-mount-fail-with-exit-status-32))
+- `nfs-common` installed on nodes (done if using the node prep playbook)
 - (_strongly_ recommend) configuring IP range restrictions on the NFS share, as NFS uses client-side verification
 
 For permissions, I have had the most luck with creating a service user on the NAS (eg. `nfsdataowner`), assigning user `chown nfsdataowner:nfsdataowner`, `chmod 770` permissions to the share (dataset), then setting Mapall User to `nfsdataowner`.
@@ -368,15 +369,19 @@ Export list for FILE_SERVER:
 Once that share is available, we can configure the Provisioner. This will be done via the [NFS Subdirectory External Provisioner Helm Chart](https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner). On the management machine, run:
 ```
 helm repo add nfs-subdir-external-provisioner https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
-helm install nfs-subdir-external-provisioner nfs-subdir-external-provisioner/nfs-subdir-external-provisioner \
+helm upgrade --install nfs-subdir-external-provisioner nfs-subdir-external-provisioner/nfs-subdir-external-provisioner \
     --set nfs.server=x.x.x.x \
     --set nfs.path=/exported/path \
+    --set nfs.mountOptions='all_squash,anonuid=1001,anongid=1001' \
     --set storageClass.defaultClass=true
 ```
 Where, [values](https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner/blob/master/charts/nfs-subdir-external-provisioner/README.md):
 - `nfs.server=x.x.x.x` is the IP or FQDN of your NFS server
 - `nfs.path=/exported/path` is the path of the NFS share (seen in `showmount`)
 - `storageClass.defaultClass=true` sets as the default storage class, so it is used by those pesky charts that don't expose storage class
+- `nfs.mountOptions='{all_squash,anonuid=1001,anongid=1001}'` are NFS mount options
+  - `all_squash` overrides all IDs to anonymous user
+  - `anonuid=1001` locks the anonymous user ID to 1001. Sync this to your service account (created above) to basically 
 - `storageClass.name=nfs-client` sets the name of the class (if creating multiple storage tiers)
 
 Your pods will now be able to provision Persistent Volumes by creating a Persistent Volume Claim; the provisioner will negotiate with the NAS to create the files on the server. Alternatively, if you have multiple storage tiers, you can specify the class in your PVC (probably, I haven't tested this):
