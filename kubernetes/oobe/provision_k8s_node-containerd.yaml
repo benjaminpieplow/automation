@@ -29,6 +29,7 @@
         - gnupg
         - lsb-release
         - portmap
+        - nfs-common
       state: latest
 
   - name: Add Docker GPG key

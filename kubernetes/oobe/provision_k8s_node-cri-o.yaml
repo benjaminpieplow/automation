@@ -30,6 +30,7 @@
         - ca-certificates
         - curl
         - software-properties-common
+        - nfs-common
       state: latest
 
   # Add cri-o and K8s Repos

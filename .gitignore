@@ -1,2 +1,3 @@
 /vyos/**
 !build-vyos.sh
+.codegpt
