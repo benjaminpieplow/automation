@@ -347,8 +347,35 @@ When creating upstream servers:
 
 - If using port `31443`, make sure to either uncheck "TLS: Verify Certificate", or ensure NGINX trusts the server certificates
 
-## Add cluster storage
-Recommended reading: [Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes) and [Storage Classes](https://kubernetes.io/docs/concepts/storage/storage-classes). Through some dark magic, NFS seems to punch in the same weight-class as AzureFile and CephFS, so I will use that. We will create a storage class which applications can use to create Persistent Volumes (PVs) based on Persistent Volume Claims (PVCs); this will abstract storage management "for the most part". As Kubernetes [does not maintain](https://kubernetes.io/docs/concepts/storage/storage-classes/#provisioner) an NFS "Internal Provisioner", an external one must be used and according to [stackoverflow](https://stackoverflow.com/questions/43295344/kubernetes-dynamic-persistent-volume-provisioning-using-nfs), [subdir](https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner) seems to be the way to go. 
+## Cluster storage
+Recommended reading: [Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes) and [Storage Classes](https://kubernetes.io/docs/concepts/storage/storage-classes). ~~Through some dark magic, NFS seems to punch in the same weight-class as AzureFile and CephFS, so I will use that.~~ That statement is true until you (try to ) run a database on NFS storage. At this point, the database will die, you will lose some hours, and configure something else; to prevent those grey hairs preemptively, I will provide guidance on how to configure both, and advise when to use each:
+- Rook: Everything possible
+- NFS: Direct file read/writes from a NAS file share, which is used by other devices on the network
+
+For both of these, we will use Storage Classes, so applications can choose their storage tier as required. The application (in its manifest) will use these classes to create Persistent Volumes (PVs) based on Persistent Volume Claims (PVCs) based on the correct storage; this will abstract storage management "for the most part" and allow applications to just "ask for" storage. The tags I use are,
+- `rook-default` -> OOBE CEPH Storage built on the cluster
+- `rook-client-*` -> External CEPH cluster
+- `nfs-client-*` -> External NFS server/share
+
+### Rook cluster storage
+**Storage Design** must be considered before deploying. How your disks are going to be exposed to the pods is assisted by, but not determined by, Rook
+
+Rook is designed to work with Kubernetes in a node-level hyper-converged setup, but also supports [External Ceph Clusters](https://github.com/rook/rook/blob/master/design/ceph/ceph-external-cluster.md), which may be useful if you have a hyper-converged Proxmox cluster. The following diagram explains how these work together:
+
+![Storage Diagram](./docs/rook-hycv-nodes.drawio.svg)
+
+The Rook Internal Cluster deployment expects disks mounted to the Nodes, I use the term "node-level hyper-converged" to describe this infrastructure as the node becomes an atomic fault/scale unit. This is the easiest to set up, and the most practical solution if your kubernetes cluster runs bare-metal. However, it will be less performant and more complex if your Kubernetes nodes are virtualized, as you will need to either pass-through storage or "pay" for the processing overhead of virtualized disks. In this case, it would be more practical to use an External Cluster (hyper-converged virtualized or classic Compute - Network - Storage infrastructure) mounted by Rook.
+
+#### Rook Prerequisites
+
+#### Rook Internal Cluster
+
+#### Rook External Cluster
+
+
+
+### NFS Cluster Storage
+As Kubernetes [does not maintain](https://kubernetes.io/docs/concepts/storage/storage-classes/#provisioner) an NFS "Internal Provisioner", an external one must be used and according to [stackoverflow](https://stackoverflow.com/questions/43295344/kubernetes-dynamic-persistent-volume-provisioning-using-nfs), [subdir](https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner) seems to be the way to go. 
 
 This guide expects that you have an NFS share already, which,
 
