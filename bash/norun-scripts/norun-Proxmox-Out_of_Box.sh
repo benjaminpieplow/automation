@@ -15,7 +15,7 @@ pveam update
 apt full-upgrade -y
 
 # Disable Enterprise Update Channel (requires subscription)
-sed -i '/^deb https:\/\/enterprise.proxmox.com\/debian\/pve bullseye pve-enterprise$/s/^/#/' /etc/apt/sources.list.d/pve-enterprise.list
+sed -i '/^deb https:\/\/enterprise.proxmox.com\/debian\/pve .* pve-enterprise$/s/^/#/' /etc/apt/sources.list.d/pve-enterprise.list
 # Disable "subscription" alert
 sed -Ezi.bak "s/(Ext.Msg.show\(\{\s+title: gettext\('No valid sub)/void\(\{ \/\/\1/g" /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js && systemctl restart pveproxy.service
 # Enable seat-of-your-pants updates
