@@ -112,7 +112,7 @@
       owner: root
       src: module_kubernetes.conf # File only contains br_netfliter, add other drivers here if needed
 
-  #   # NetworkManager must be disabled (note: this should probably happen sooner)
+  #   # NetworkManager must be disabled
   # - name: Create NetworkManager directory
   #   tags:
   #     - oobe

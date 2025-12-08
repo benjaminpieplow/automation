@@ -104,6 +104,8 @@ ok: [localhost] => {
 Script: **Line by line** run [jammy-template-9000.sh](https://github.com/benjaminpieplow/automation/blob/main/bash/scripts/jammy-template-9000.sh) on a proxmox node. I will automate this *eventually*.
 
 ### Create a VM
+Note: Currently, this runs in Ansible; I will be switching to the CLI, as the VM-Create from Template is difficult to modularize, and extremely buggy.
+
 Run the following ansible-playbook. Notes,
 
 * You will be prompted for required info
@@ -131,11 +133,21 @@ Where,
 * `proxmox_node_name` is the name of your Proxmox node in `~/common/auth/proxmox.yaml`
 * `vm_nic0_vlan` is the ID of the VLAN the VM's primary NIC will be tagged with (currently broken; uses VLAN ID from template)
 
-### Test connection to the VM
+You may also want to edit the `scsi` block in the template. I have two VM "data disks" deploying to `local-lvm`; prameterizing this is nearly impossible, especially when accounting for different infrastructures. My Rook implementation expects,
+
+* two disks in the VM which it will fully consume
+* at least 3 worker VMs
+* worker VM to hypervisor node affinity
+
+They can also be left as-is on `local-lvm`, and moved onto dedicated storage manually once you buy some 🙃
+
+### Test connection to VM
 To skip mucking around with passwords, I don't set one, which means Ubuntu won't let you log into the machine. To get around this, check DHCP for IPs and SSH in using,
 ```
-ssh root@10.0.0.1 -i ~/.kube/id_mgmt_ed25519
+ssh root@10.0.0.1 -o StrictHostKeyChecking=accept-new -i ~/.kube/id_mgmt_ed25519
 ```
+
+This also auto-accepts SSH keys, so ansible doesn't have a cow.
 
 
 # Configure VMs for Kubernetes
@@ -154,18 +166,21 @@ You can test this with,
 ansible-playbook -vvvv --inventory $inventoryDir --limit k8s ~/source/automation/ansible/playbooks/test_host.yaml
 ```
 
-The output will include some JSON containing,
+The output will include some JSON and end with,
 ```
 PLAY RECAP **********
 <host1>        : ok=2
 <host2>        : ok=2
 <host3>        : ok=2
+...
 ```
+
+Probably. Troubleshoot as necessary.
 
 ## Steps
 This has been consolidated into a single playbook. Either this works, or your day gets long.
 
-`cri-o` "Podman" runtime:
+`cri-o` "Podman" runtime (recommended):
 ```
 ansible-playbook --inventory $inventoryDir --limit k8s --tags "oobe" ~/source/automation/kubernetes/oobe/provision_k8s_node-cri-o.yaml
 ```

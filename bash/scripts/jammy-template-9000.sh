@@ -33,7 +33,7 @@ virt-customize -a jammy-server-cloudimg-amd64.img --run-command '>/etc/machine-i
 qm create 9000 --name "ubuntu-jammy-cloudinit-template" --memory 4096 --cores 4 --net0 virtio,bridge=vmbr0,tag=$vlantag
 qm importdisk 9000 jammy-server-cloudimg-amd64.img local-lvm
 qm set 9000 --scsihw virtio-scsi-pci --scsi0 local-lvm:vm-9000-disk-0
-qm disk resize 9000 scsi0 64G
+qm disk resize 9000 scsi0 32G
 qm set 9000 --ipconfig0 ip=dhcp,ip6=dhcp
 qm set 9000 --boot c --bootdisk scsi0
 qm set 9000 --ide2 local-lvm:cloudinit

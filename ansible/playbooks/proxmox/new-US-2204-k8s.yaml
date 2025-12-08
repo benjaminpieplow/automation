@@ -36,7 +36,7 @@
         name: proxmox_auth
 
     - name: Provision Virtual Machine
-      community.general.proxmox_kvm:
+      community.proxmox.proxmox_kvm:
         # Auth info
         api_token_id: "{{ proxmox_auth[proxmox_node_name].api_token_id }}"
         api_user: "{{ proxmox_auth[proxmox_node_name].api_user }}"
@@ -74,7 +74,9 @@
           # ide2: "local:iso/ubuntu-22.04.4-live-server-amd64.iso,media=cdrom"
         scsihw: 'virtio-scsi-single'
         scsi:
-          scsi0: "local-lvm:32,format=raw,iothread=1"
+          scsi0: "local-lvm:32,format=raw,iothread=1" # Ignores size
+          # scsi1: "local-lvm:32,format=raw,iothread=1" # Doesn't work with template 
+          # scsi2: "local-lvm:32,format=raw,iothread=1" # Doesn't work with templates
           
 
         # Services
@@ -91,7 +93,7 @@
 
 
     - name: Start VM 
-      community.general.proxmox_kvm:
+      community.proxmox.proxmox_kvm:
         # Auth info
         api_token_id: "{{ proxmox_auth[proxmox_node_name].api_token_id }}"
         api_user: "{{ proxmox_auth[proxmox_node_name].api_user }}"
@@ -109,7 +111,7 @@
         timeout: 360  # 300 is NOT enough
 
     - name: Restart VM 
-      community.general.proxmox_kvm:
+      community.proxmox.proxmox_kvm:
         # Auth info
         api_token_id: "{{ proxmox_auth[proxmox_node_name].api_token_id }}"
         api_user: "{{ proxmox_auth[proxmox_node_name].api_user }}"
