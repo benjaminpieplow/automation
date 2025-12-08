@@ -4,6 +4,9 @@
 
 - name: Create New K8s VM
   hosts: localhost
+  vars:
+    clone_vm_id: 9000
+
   vars_prompt:
   - name: proxmox_node_name
     private: false
@@ -11,7 +14,7 @@
 
   - name: vm_ram_max
     private: false
-    prompt: Max balooning RAM
+    prompt: Max ballooning RAM
 
   - name: vm_ram_startup
     private: false
@@ -21,9 +24,9 @@
     private: false
     prompt: Name of the VM
 
-  - name: vm_id
+  - name: new_vm_id
     private: false
-    prompt: VMID (auto not supported)
+    prompt: New VMID
 
   - name: vm_nic0_vlan
     private: false
@@ -47,8 +50,9 @@
         # VM General
         name: "{{ vm_name }}"
         clone: "ubuntu-jammy-cloudinit-template"
+        vmid: "{{ clone_vm_id }}"
         onboot: false
-        newid: "{{ vm_id }}"
+        newid: "{{ new_vm_id }}"
         ostype: l26
         tags:
           - ansible
@@ -64,8 +68,8 @@
         balloon: "{{ vm_ram_startup }}"
 
         # Networking
-        net:
-          net0: 'virtio,bridge=vmbr0,tag={{ vm_nic0_vlan }}'
+        # net:
+        #   net0: "virtio,bridge=vmbr0,tag={{ vm_nic0_vlan }}" # Ignores with template
 
 
         # Storage
@@ -90,6 +94,49 @@
           storage: local-lvm
           version: "2.0"
         numa_enabled: true
+    
+    - name: Add Data disk 1
+      community.proxmox.proxmox_disk:
+        # Auth info
+        api_token_id: "{{ proxmox_auth[proxmox_node_name].api_token_id }}"
+        api_user: "{{ proxmox_auth[proxmox_node_name].api_user }}"
+        api_token_secret: "{{ proxmox_auth[proxmox_node_name].api_token_secret }}"
+        api_host: "{{ proxmox_auth[proxmox_node_name].api_host }}"
+        vmid: "{{ new_vm_id }}"
+        disk: scsi1
+        backup: false
+        cache: none
+        storage: local-lvm
+        size: 32
+        state: present
+    
+    - name: Add Data disk 2
+      community.proxmox.proxmox_disk:
+        # Auth info
+        api_token_id: "{{ proxmox_auth[proxmox_node_name].api_token_id }}"
+        api_user: "{{ proxmox_auth[proxmox_node_name].api_user }}"
+        api_token_secret: "{{ proxmox_auth[proxmox_node_name].api_token_secret }}"
+        api_host: "{{ proxmox_auth[proxmox_node_name].api_host }}"
+        vmid: "{{ new_vm_id }}"
+        disk: scsi2
+        backup: false
+        cache: none
+        storage: local-lvm
+        size: 32
+        state: present
+    
+    - name: Set NIC
+      community.proxmox.proxmox_nic:
+        # Auth info
+        api_token_id: "{{ proxmox_auth[proxmox_node_name].api_token_id }}"
+        api_user: "{{ proxmox_auth[proxmox_node_name].api_user }}"
+        api_token_secret: "{{ proxmox_auth[proxmox_node_name].api_token_secret }}"
+        api_host: "{{ proxmox_auth[proxmox_node_name].api_host }}"
+        vmid: "{{ new_vm_id }}"
+        interface: net0
+        bridge: vmbr0
+        tag: "{{ vm_nic0_vlan }}"
+        mtu: 1
 
 
     - name: Start VM 
@@ -106,7 +153,7 @@
     - name: Sleep
       ansible.builtin.wait_for:
         # Yes, it's trash, sue me. CloudInit boots with hostname "ubuntu", which it sends to DHCP, which registers it in DNS
-        # I need to reboot the VM after cloudinit is done so it updates the DNS cache, but can't "check" cloud init in the VM
+        # I need to reboot the VM after cloudinit is done so it updates the DNS cache, but can't verify when cloudinit finishes
         # So stop complaining and get a coffee.
         timeout: 360  # 300 is NOT enough
 

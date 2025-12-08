@@ -121,7 +121,7 @@ ansible-playbook -vvvv --inventory $inventoryDir ~/source/automation/ansible/pla
 ```
 inventoryDir="~/common/inventory.yaml"
 ansible-playbook --inventory $inventoryDir ~/source/automation/ansible/playbooks/proxmox/new-US-2204-k8s.yaml \
--e "vm_ram_max=8192 vm_ram_startup=2048 proxmox_node_name=node-foo vm_nic0_vlan=1 vm_name=vm-bar vm_id=123"
+-e "vm_ram_max=8192 vm_ram_startup=2048 proxmox_node_name=node-foo vm_nic0_vlan=1 vm_name=vm-bar new_vm_id=123"
 ```
 
 Where,
@@ -129,7 +129,7 @@ Where,
 * `vm_ram_max` is max ballooning RAM
 * `vm_ram_startup` is RAM at startup
 * `vm_name` is hostname of the VM (also used in Proxmox)
-* `vm_id` is the ID the VM will get in Proxmox
+* `new_vm_id` is the ID the VM will get in Proxmox
 * `proxmox_node_name` is the name of your Proxmox node in `~/common/auth/proxmox.yaml`
 * `vm_nic0_vlan` is the ID of the VLAN the VM's primary NIC will be tagged with (currently broken; uses VLAN ID from template)
 
