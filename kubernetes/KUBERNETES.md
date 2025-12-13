@@ -29,6 +29,8 @@ These are config files the Ansible playbooks need to reference/provision during 
 
 `sysctl.conf` enables `net.ipv4.ip_forward=1` by replacing `/etc/sysctl.conf`. This *really* expects a freshly provisioned VM.
 
+### `./rook`
+Contains elements for provisioning Cluster storage using the Rook operator.
 
 ## Steps Overview
 This guide picks up after [configuring your management machine](#management-machine)
@@ -221,6 +223,11 @@ This command outputs a very handy `kubectl join` command, which I suggest saving
 kubeadm token create --print-join-command
 ```
 
+Run it remotely with
+```
+ssh root@$WORKERNODE_IP '<output_from_token_create>'
+```
+
 ## Grab the cluster's administration/connection info
 Note: copy this into whatever host you use to administer the cluster. Run this from your management machine, changing the `-CLUSTER` to a name uniquely identifying the cluster or removing it entirely.
 
@@ -231,7 +238,12 @@ scp -i ~/.kube/id_mgmt_ed25519 root@$MASTER_NODE_IP:/etc/kubernetes/admin.conf ~
 ```
 
 
-`kubectl` will now connect to the newly created cluster (optionally, with `--kubeconfig ~/.kube/config-CLUSTER`), you can test it with `kubectl get nodes` To install kubectl, see below.
+`kubectl` will now connect to the newly created cluster (optionally, with `--kubeconfig ~/.kube/config-CLUSTER`), you can test it with `kubectl get nodes` (to install kubectl, see below)
+
+The rest of the guide is run from the management machine, it's convenient to set
+```
+export KUBECONFIG=$HOME/.kube/config-CLUSTER
+```
 
 ## Join worker nodes to cluster
 Run the `kubeadm join` command on each worker node.
@@ -302,7 +314,7 @@ This second communication happens over the "cluster network", that's what we nee
 You can read about other NGINX solutions [here](https://kubernetes.github.io/ingress-nginx/deploy/baremetal/).
 
 ## Deploy NGINX Ingress Controller
-By default, the helm chart install NGINX in a mode where it randomly selects a nodeport from a range (30000 - 32767). This does not help us, because our upstream load balancer/proxy will not run `kubectl -n ingress-nginx get svc` to figure out where it can find the service. Instead, we have to bind NGINX to a specific nodeport. To do this, we'll edit the helm chart for the baremetal deployment.
+By default, the helm chart will install NGINX in a mode where it randomly selects a nodeport from a range (30000 - 32767). This does not help us, because our upstream load balancer/proxy will not run `kubectl -n ingress-nginx get svc` to figure out where it can find the service. Instead, we have to bind NGINX to a specific nodeport. To do this, we'll edit the helm chart for the baremetal deployment.
 
 Download the raw configuration.
 ```
@@ -319,6 +331,8 @@ Edit the `controller: service: nodePorts:` section with your choice of ports (I 
       # -- Node port allocated for the external HTTPS listener. If left empty, the service controller allocates one from the configured node port range.
       https: 31443
 ```
+
+This is all the configuration I needed to do; I have added the file to the repo with these customized values, but highly suggest pulling/configuring a fresh one. This will also update the `tag` to the latest version, as well as pulling along any new configs needed to get it working.
 
 You can test your configuration with:
 ```
@@ -372,7 +386,24 @@ For both of these, we will use Storage Classes, so applications can choose their
 - `rook-client-*` -> External CEPH cluster
 - `nfs-client-*` -> External NFS server/share
 
-### Rook cluster storage
+### Rook cluster storage (Theory)
+Rook is an operator which manages exposing Ceph to Kubernetes. Much like NGINX, I will briefly explain the theory and key topics.
+
+#### Ceph
+Ceph "solves" the problem of having a single point of failure in a cluster; it serves hyper-scalable, highly durable storage. Ceph can be installed on dedicated nodes or in a hyperconverged configuration (see **Storage Design** below). I've outlined the key concepts based on [Ceph documentation](https://docs.ceph.com/en/reef/start/),
+
+- Object Storage Daemons -> **OSD**s attaches to storage and manages read/write, balancing, replication, recovery.
+- Ceph Monitor -> Creates maps of the cluster, including CRUSH, OSDs, MDS
+- Ceph Manager -> Exposes the Dashboard/API, monitors cluster state, storage
+- Ceph Metadata Server -> **MDS** stores Metadata for CephFS
+- Ceph File System -> **CepfFS** is a POSIX-compliant file system built on RADOS
+- RADOS _Gateway_ -> **RGW** is an Object Gateway. RESTful, supports S3 or Swift
+- Ceph Block Device -> **RADOS Block Device** 
+- Reliable Autonomic Distributed Object Store -> **RADOS** is the object store at the core of Ceph
+
+Although not built for Kubernetes, this integrates very well with the topology K8s uses; node affinity, horizontal scalability, no single-point-of-failure (besides the operator).
+
+#### Storage Design
 **Storage Design** must be considered before deploying. How your disks are going to be exposed to the pods is assisted by, but not determined by, Rook
 
 Rook is designed to work with Kubernetes in a node-level hyper-converged setup, but also supports [External Ceph Clusters](https://github.com/rook/rook/blob/master/design/ceph/ceph-external-cluster.md), which may be useful if you have a hyper-converged Proxmox cluster. The following diagram explains how these work together:
@@ -381,15 +412,99 @@ Rook is designed to work with Kubernetes in a node-level hyper-converged setup, 
 
 The Rook Internal Cluster deployment expects disks mounted to the Nodes, I use the term "node-level hyper-converged" to describe this infrastructure as the node becomes an atomic fault/scale unit. This is the easiest to set up, and the most practical solution if your kubernetes cluster runs bare-metal. However, it will be less performant and more complex if your Kubernetes nodes are virtualized, as you will need to either pass-through storage or "pay" for the processing overhead of virtualized disks. In this case, it would be more practical to use an External Cluster (hyper-converged virtualized or classic Compute - Network - Storage infrastructure) mounted by Rook.
 
-#### Rook Prerequisites
+#### Storage Classes
+When workloads need storage, they create a Persistent Volume to store their data. The pods then use a Persistent Volume Claim to "attach" to the PV. A Persistent Volume uses a specific _class_ of storage; this allows workloads to optimize what kind of storage they need. I recommend planning out your storage infrastructure, and creating a naming convention 
 
-#### Rook Internal Cluster
+### Rook cluster storage (Implementation)
+
+One thing to note; in this section, I deploy the **Rook Operator** with **Helm**, but the **Ceph Clusters** and **Storage Classes** are deployed with standard Kubernetes Manifests. I did not customize much on the Rook Operator, it seems to work well out-of-the-box. The Cluster on the other hand (especially the storage classes) benefit from the additional control offered by using manifests. If you wish to deploy the "bone-stock" variant, use the [Ceph Cluster Chart](https://rook.io/docs/rook/v1.12/Helm-Charts/ceph-cluster-chart/#release).
+
+#### Rook Prerequisites (Required)
+According to [Rook documentation](https://rook.io/docs/rook/v1.12/Getting-Started/Prerequisites/prerequisites/), the only node-level requirement is `lvm2`. This is packaged into the Ubuntu nodes built using this guide.
+
+The cluster requires the Ceph Operator Helm Chart. I _strongly_ suggest reading through the [official documentation](https://rook.io/docs/rook/v1.12/Helm-Charts/operator-chart/) if you are new to Ceph/Rook.
+
+Add the helm repo
+```
+helm repo add rook-release https://charts.rook.io/release
+```
+
+Generate an editable file.
+```
+mkdir ~/k8s-admin/rook
+cd ~/k8s-admin/rook
+helm show values rook-ceph --repo https://charts.rook.io/release >> rook_config.yaml
+```
+
+Changes I recommend:
+
+- I would pin a version, and do updates manually (forget about them until they cause an incompatibility and you _have_ to update)
+
+This list will be updated as I find rough edges.
+
+Deploy the operator with,
+```
+helm upgrade --install --create-namespace --namespace rook-ceph rook-ceph rook-release/rook-ceph -f rook_config.yaml
+```
+
+#### Rook Internal CEPH Cluster (Optional)
+Start with customizing the "prod" cluster yaml,
+
+```
+curl https://github.com/rook/rook/blob/release-1.18/deploy/examples/cluster.yaml >> cluster.yaml
+```
+
+Changes I made,
+
+- pinned version to v19
+
+I'm sure more will reveal themselves once I get to making errors. Deploy the cluster with,
+```
+kubectl create -f cluster.yaml
+```
 
 #### Rook External Cluster
 
+Ha hA! I will write this once I get some more hypervisors; at the time of writing the AI industry ruined the RAM market so nodes are not on the horizon.
+
+#### CEPH dashboard (Optional)
+To administer Ceph, a dashboard is _highly_ recommended. This setup supports two methods: **Ingress** and **Node Port**. Ingress has the advantage of integrating with the rest of your HTTP/S infrastructure, Node Port has the advantage of not needing any HTTP/S infrastructure.
+
+My architecture expects HTTP apps, and handles certs with NGINX instances, so I modified `cluster.yaml` to present the dashboard over HTTP. This is not required if you have downstream NGINX instances configured not to verify certs (or you pull this cert and shove it into your trusted certs).
+```
+  dashboard:
+    enabled: true
+    port: 8080
+    ssl: false
+```
+
+**Node Port** (31222):
+```
+kubectl create -f ./kubernetes/rook/cluster/ceph-dashboard-nodeport.yaml
+```
+
+**Ingress**:
+```
+missing
+```
+
+Get password (username `admin`) using:
+```
+kubectl -n rook-ceph get secret rook-ceph-dashboard-password -o jsonpath="{['data']['password']}" | base64 --decode && echo
+```
+
+#### Rook Storage Class
+This step requires _either_ the **Internal** or **External** Cluster to be added.
 
 
-### NFS Cluster Storage
+
+### NFS Cluster Storage (Attached)
+Hey, future Ben! Check this output from installing Rook!
+
+> The CSI operator will manage the CSI driver lifecycle for RBD, CephFS, and NFS drivers.
+
+You should _probably_ rewrite this section 🙃
+
 As Kubernetes [does not maintain](https://kubernetes.io/docs/concepts/storage/storage-classes/#provisioner) an NFS "Internal Provisioner", an external one must be used and according to [stackoverflow](https://stackoverflow.com/questions/43295344/kubernetes-dynamic-persistent-volume-provisioning-using-nfs), [subdir](https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner) seems to be the way to go. 
 
 This guide expects that you have an NFS share already, which,

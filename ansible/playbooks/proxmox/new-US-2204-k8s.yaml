@@ -59,7 +59,7 @@
           - k8s
 
         # CPU
-        cpu: x86-64-v2-AES
+        cpu: x86-64-v4
         sockets: 1
         cores: 4
 

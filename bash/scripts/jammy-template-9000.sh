@@ -23,7 +23,7 @@ virt-customize -a jammy-server-cloudimg-amd64.img --ssh-inject root:file:id_ed25
 virt-customize -a jammy-server-cloudimg-amd64.img --run-command '>/etc/machine-id' # important step so your clones get unique mac address / network details.
 
 #create vm + customize
-qm create 9000 --name "ubuntu-jammy-cloudinit-template" --memory 4096 --cores 4 --net0 virtio,bridge=vmbr0,tag=$vlantag
+qm create 9000 --name "ubuntu-jammy-cloudinit-template" --memory 4096 --cores 4 --net0 virtio,bridge=vmbr0,tag=$vlantag # NOTE: You need to set "CPU" to either "host" or probably "x86-64-v4"
 qm importdisk 9000 jammy-server-cloudimg-amd64.img local-lvm
 qm set 9000 --scsihw virtio-scsi-pci --scsi0 local-lvm:vm-9000-disk-0
 qm disk resize 9000 scsi0 16G
