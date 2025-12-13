@@ -233,12 +233,12 @@ spec:
   #   crashcollector:
   resources:
   #The requests and limits set here, allow the mgr pod to use half of one CPU core and 1 gigabyte of memory
-  #   mgr:
-  #     limits:
-  #       memory: "1024Mi"
-  #     requests:
-  #       cpu: "500m"
-  #       memory: "1024Mi"
+    # mgr:
+    #   limits:
+    #     memory: "1024Mi"
+    #   requests:
+    #     cpu: "500m"
+    #     memory: "1024Mi"
   # The above example requests/limits can also be added to the other components
   #   mon:
   #   osd:
