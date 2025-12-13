@@ -75,7 +75,25 @@
       mode: 0644
       owner: root
       src: module_kubernetes.conf # File only contains br_netfliter, add other drivers here if needed
-  
+
+    # NetworkManager must be disabled
+  - name: Create NetworkManager directory
+    tags:
+      - oobe
+    ansible.builtin.file:
+      path: /etc/NetworkManager/conf.d
+      state: directory
+
+  - name: Disable NetworkManager for Calico's interfaces
+    tags:
+      - oobe
+    ansible.builtin.template:
+      dest: /etc/NetworkManager/conf.d/calico.conf
+      force: no
+      mode: 0644
+      owner: root
+      src: calico.conf # File only contains br_netfliter, add other drivers here if needed
+
   - name: Enable packet forwarding
     # More file shoving garbage, this one nukes /etc/sysctl.conf because net.ipv4.ip_forward=1 is commented out
     tags:
@@ -138,24 +156,6 @@
         - kubeadm
         - kubectl
       state: latest
-
-  # NetworkManager must be disabled (note: this should probably happen sooner)
-  - name: Create NetworkManager directory
-    tags:
-      - oobe
-    ansible.builtin.file:
-      path: /etc/NetworkManager/conf.d
-      state: directory
-
-  - name: Disable NetworkManager for Calico's interfaces
-    tags:
-      - oobe
-    ansible.builtin.template:
-      dest: /etc/NetworkManager/conf.d/calico.conf
-      force: no
-      mode: 0644
-      owner: root
-      src: calico.conf # File only contains br_netfliter, add other drivers here if needed
 
   - name: Reboot host
     tags:

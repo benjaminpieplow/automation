@@ -29,6 +29,8 @@ These are config files the Ansible playbooks need to reference/provision during 
 
 `sysctl.conf` enables `net.ipv4.ip_forward=1` by replacing `/etc/sysctl.conf`. This *really* expects a freshly provisioned VM.
 
+### `./rook`
+Contains elements for provisioning Cluster storage using the Rook operator.
 
 ## Steps Overview
 This guide picks up after [configuring your management machine](#management-machine)
@@ -104,6 +106,8 @@ ok: [localhost] => {
 Script: **Line by line** run [jammy-template-9000.sh](https://github.com/benjaminpieplow/automation/blob/main/bash/scripts/jammy-template-9000.sh) on a proxmox node. I will automate this *eventually*.
 
 ### Create a VM
+Note: Currently, this runs in Ansible; I will be switching to the CLI, as the VM-Create from Template is difficult to modularize, and extremely buggy.
+
 Run the following ansible-playbook. Notes,
 
 * You will be prompted for required info
@@ -119,7 +123,7 @@ ansible-playbook -vvvv --inventory $inventoryDir ~/source/automation/ansible/pla
 ```
 inventoryDir="~/common/inventory.yaml"
 ansible-playbook --inventory $inventoryDir ~/source/automation/ansible/playbooks/proxmox/new-US-2204-k8s.yaml \
--e "vm_ram_max=8192 vm_ram_startup=2048 proxmox_node_name=node-foo vm_nic0_vlan=1 vm_name=vm-bar vm_id=123"
+-e "vm_ram_max=8192 vm_ram_startup=2048 proxmox_node_name=node-foo vm_nic0_vlan=1 vm_name=vm-bar new_vm_id=123"
 ```
 
 Where,
@@ -127,15 +131,25 @@ Where,
 * `vm_ram_max` is max ballooning RAM
 * `vm_ram_startup` is RAM at startup
 * `vm_name` is hostname of the VM (also used in Proxmox)
-* `vm_id` is the ID the VM will get in Proxmox
+* `new_vm_id` is the ID the VM will get in Proxmox
 * `proxmox_node_name` is the name of your Proxmox node in `~/common/auth/proxmox.yaml`
 * `vm_nic0_vlan` is the ID of the VLAN the VM's primary NIC will be tagged with (currently broken; uses VLAN ID from template)
 
-### Test connection to the VM
+You may also want to edit the `scsi` block in the template. I have two VM "data disks" deploying to `local-lvm`; prameterizing this is nearly impossible, especially when accounting for different infrastructures. My Rook implementation expects,
+
+* two disks in the VM which it will fully consume
+* at least 3 worker VMs
+* worker VM to hypervisor node affinity
+
+They can also be left as-is on `local-lvm`, and moved onto dedicated storage manually once you buy some 🙃
+
+### Test connection to VM
 To skip mucking around with passwords, I don't set one, which means Ubuntu won't let you log into the machine. To get around this, check DHCP for IPs and SSH in using,
 ```
-ssh root@10.0.0.1 -i ~/.kube/id_mgmt_ed25519
+ssh root@10.0.0.1 -o StrictHostKeyChecking=accept-new -i ~/.kube/id_mgmt_ed25519
 ```
+
+This also auto-accepts SSH keys, so ansible doesn't have a cow.
 
 
 # Configure VMs for Kubernetes
@@ -154,18 +168,21 @@ You can test this with,
 ansible-playbook -vvvv --inventory $inventoryDir --limit k8s ~/source/automation/ansible/playbooks/test_host.yaml
 ```
 
-The output will include some JSON containing,
+The output will include some JSON and end with,
 ```
 PLAY RECAP **********
 <host1>        : ok=2
 <host2>        : ok=2
 <host3>        : ok=2
+...
 ```
+
+Probably. Troubleshoot as necessary.
 
 ## Steps
 This has been consolidated into a single playbook. Either this works, or your day gets long.
 
-`cri-o` "Podman" runtime:
+`cri-o` "Podman" runtime (recommended):
 ```
 ansible-playbook --inventory $inventoryDir --limit k8s --tags "oobe" ~/source/automation/kubernetes/oobe/provision_k8s_node-cri-o.yaml
 ```
@@ -206,6 +223,11 @@ This command outputs a very handy `kubectl join` command, which I suggest saving
 kubeadm token create --print-join-command
 ```
 
+Run it remotely with
+```
+ssh root@$WORKERNODE_IP '<output_from_token_create>'
+```
+
 ## Grab the cluster's administration/connection info
 Note: copy this into whatever host you use to administer the cluster. Run this from your management machine, changing the `-CLUSTER` to a name uniquely identifying the cluster or removing it entirely.
 
@@ -216,7 +238,12 @@ scp -i ~/.kube/id_mgmt_ed25519 root@$MASTER_NODE_IP:/etc/kubernetes/admin.conf ~
 ```
 
 
-`kubectl` will now connect to the newly created cluster (optionally, with `--kubeconfig ~/.kube/config-CLUSTER`), you can test it with `kubectl get nodes` To install kubectl, see below.
+`kubectl` will now connect to the newly created cluster (optionally, with `--kubeconfig ~/.kube/config-CLUSTER`), you can test it with `kubectl get nodes` (to install kubectl, see below)
+
+The rest of the guide is run from the management machine, it's convenient to set
+```
+export KUBECONFIG=$HOME/.kube/config-CLUSTER
+```
 
 ## Join worker nodes to cluster
 Run the `kubeadm join` command on each worker node.
@@ -287,7 +314,7 @@ This second communication happens over the "cluster network", that's what we nee
 You can read about other NGINX solutions [here](https://kubernetes.github.io/ingress-nginx/deploy/baremetal/).
 
 ## Deploy NGINX Ingress Controller
-By default, the helm chart install NGINX in a mode where it randomly selects a nodeport from a range (30000 - 32767). This does not help us, because our upstream load balancer/proxy will not run `kubectl -n ingress-nginx get svc` to figure out where it can find the service. Instead, we have to bind NGINX to a specific nodeport. To do this, we'll edit the helm chart for the baremetal deployment.
+By default, the helm chart will install NGINX in a mode where it randomly selects a nodeport from a range (30000 - 32767). This does not help us, because our upstream load balancer/proxy will not run `kubectl -n ingress-nginx get svc` to figure out where it can find the service. Instead, we have to bind NGINX to a specific nodeport. To do this, we'll edit the helm chart for the baremetal deployment.
 
 Download the raw configuration.
 ```
@@ -304,6 +331,8 @@ Edit the `controller: service: nodePorts:` section with your choice of ports (I 
       # -- Node port allocated for the external HTTPS listener. If left empty, the service controller allocates one from the configured node port range.
       https: 31443
 ```
+
+This is all the configuration I needed to do; I have added the file to the repo with these customized values, but highly suggest pulling/configuring a fresh one. This will also update the `tag` to the latest version, as well as pulling along any new configs needed to get it working.
 
 You can test your configuration with:
 ```
@@ -347,8 +376,136 @@ When creating upstream servers:
 
 - If using port `31443`, make sure to either uncheck "TLS: Verify Certificate", or ensure NGINX trusts the server certificates
 
-## Add cluster storage
-Recommended reading: [Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes) and [Storage Classes](https://kubernetes.io/docs/concepts/storage/storage-classes). Through some dark magic, NFS seems to punch in the same weight-class as AzureFile and CephFS, so I will use that. We will create a storage class which applications can use to create Persistent Volumes (PVs) based on Persistent Volume Claims (PVCs); this will abstract storage management "for the most part". As Kubernetes [does not maintain](https://kubernetes.io/docs/concepts/storage/storage-classes/#provisioner) an NFS "Internal Provisioner", an external one must be used and according to [stackoverflow](https://stackoverflow.com/questions/43295344/kubernetes-dynamic-persistent-volume-provisioning-using-nfs), [subdir](https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner) seems to be the way to go. 
+## Cluster storage
+Recommended reading: [Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes) and [Storage Classes](https://kubernetes.io/docs/concepts/storage/storage-classes). ~~Through some dark magic, NFS seems to punch in the same weight-class as AzureFile and CephFS, so I will use that.~~ That statement is true until you (try to ) run a database on NFS storage. At this point, the database will die, you will lose some hours, and configure something else; to prevent those grey hairs preemptively, I will provide guidance on how to configure both, and advise when to use each:
+- Rook: Everything possible
+- NFS: Direct file read/writes from a NAS file share, which is used by other devices on the network
+
+For both of these, we will use Storage Classes, so applications can choose their storage tier as required. The application (in its manifest) will use these classes to create Persistent Volumes (PVs) based on Persistent Volume Claims (PVCs) based on the correct storage; this will abstract storage management "for the most part" and allow applications to just "ask for" storage. The tags I use are,
+- `rook-default` -> OOBE CEPH Storage built on the cluster
+- `rook-client-*` -> External CEPH cluster
+- `nfs-client-*` -> External NFS server/share
+
+### Rook cluster storage (Theory)
+Rook is an operator which manages exposing Ceph to Kubernetes. Much like NGINX, I will briefly explain the theory and key topics.
+
+#### Ceph
+Ceph "solves" the problem of having a single point of failure in a cluster; it serves hyper-scalable, highly durable storage. Ceph can be installed on dedicated nodes or in a hyperconverged configuration (see **Storage Design** below). I've outlined the key concepts based on [Ceph documentation](https://docs.ceph.com/en/reef/start/),
+
+- Object Storage Daemons -> **OSD**s attaches to storage and manages read/write, balancing, replication, recovery.
+- Ceph Monitor -> Creates maps of the cluster, including CRUSH, OSDs, MDS
+- Ceph Manager -> Exposes the Dashboard/API, monitors cluster state, storage
+- Ceph Metadata Server -> **MDS** stores Metadata for CephFS
+- Ceph File System -> **CepfFS** is a POSIX-compliant file system built on RADOS
+- RADOS _Gateway_ -> **RGW** is an Object Gateway. RESTful, supports S3 or Swift
+- Ceph Block Device -> **RADOS Block Device** 
+- Reliable Autonomic Distributed Object Store -> **RADOS** is the object store at the core of Ceph
+
+Although not built for Kubernetes, this integrates very well with the topology K8s uses; node affinity, horizontal scalability, no single-point-of-failure (besides the operator).
+
+#### Storage Design
+**Storage Design** must be considered before deploying. How your disks are going to be exposed to the pods is assisted by, but not determined by, Rook
+
+Rook is designed to work with Kubernetes in a node-level hyper-converged setup, but also supports [External Ceph Clusters](https://github.com/rook/rook/blob/master/design/ceph/ceph-external-cluster.md), which may be useful if you have a hyper-converged Proxmox cluster. The following diagram explains how these work together:
+
+![Storage Diagram](./docs/rook-hycv-nodes.drawio.svg)
+
+The Rook Internal Cluster deployment expects disks mounted to the Nodes, I use the term "node-level hyper-converged" to describe this infrastructure as the node becomes an atomic fault/scale unit. This is the easiest to set up, and the most practical solution if your kubernetes cluster runs bare-metal. However, it will be less performant and more complex if your Kubernetes nodes are virtualized, as you will need to either pass-through storage or "pay" for the processing overhead of virtualized disks. In this case, it would be more practical to use an External Cluster (hyper-converged virtualized or classic Compute - Network - Storage infrastructure) mounted by Rook.
+
+#### Storage Classes
+When workloads need storage, they create a Persistent Volume to store their data. The pods then use a Persistent Volume Claim to "attach" to the PV. A Persistent Volume uses a specific _class_ of storage; this allows workloads to optimize what kind of storage they need. I recommend planning out your storage infrastructure, and creating a naming convention 
+
+### Rook cluster storage (Implementation)
+
+One thing to note; in this section, I deploy the **Rook Operator** with **Helm**, but the **Ceph Clusters** and **Storage Classes** are deployed with standard Kubernetes Manifests. I did not customize much on the Rook Operator, it seems to work well out-of-the-box. The Cluster on the other hand (especially the storage classes) benefit from the additional control offered by using manifests. If you wish to deploy the "bone-stock" variant, use the [Ceph Cluster Chart](https://rook.io/docs/rook/v1.12/Helm-Charts/ceph-cluster-chart/#release).
+
+#### Rook Prerequisites (Required)
+According to [Rook documentation](https://rook.io/docs/rook/v1.12/Getting-Started/Prerequisites/prerequisites/), the only node-level requirement is `lvm2`. This is packaged into the Ubuntu nodes built using this guide.
+
+The cluster requires the Ceph Operator Helm Chart. I _strongly_ suggest reading through the [official documentation](https://rook.io/docs/rook/v1.12/Helm-Charts/operator-chart/) if you are new to Ceph/Rook.
+
+Add the helm repo
+```
+helm repo add rook-release https://charts.rook.io/release
+```
+
+Generate an editable file.
+```
+mkdir ~/k8s-admin/rook
+cd ~/k8s-admin/rook
+helm show values rook-ceph --repo https://charts.rook.io/release >> rook_config.yaml
+```
+
+Changes I recommend:
+
+- I would pin a version, and do updates manually (forget about them until they cause an incompatibility and you _have_ to update)
+
+This list will be updated as I find rough edges.
+
+Deploy the operator with,
+```
+helm upgrade --install --create-namespace --namespace rook-ceph rook-ceph rook-release/rook-ceph -f rook_config.yaml
+```
+
+#### Rook Internal CEPH Cluster (Optional)
+Start with customizing the "prod" cluster yaml,
+
+```
+curl https://github.com/rook/rook/blob/release-1.18/deploy/examples/cluster.yaml >> cluster.yaml
+```
+
+Changes I made,
+
+- pinned version to v19
+
+I'm sure more will reveal themselves once I get to making errors. Deploy the cluster with,
+```
+kubectl create -f cluster.yaml
+```
+
+#### Rook External Cluster
+
+Ha hA! I will write this once I get some more hypervisors; at the time of writing the AI industry ruined the RAM market so nodes are not on the horizon.
+
+#### CEPH dashboard (Optional)
+To administer Ceph, a dashboard is _highly_ recommended. This setup supports two methods: **Ingress** and **Node Port**. Ingress has the advantage of integrating with the rest of your HTTP/S infrastructure, Node Port has the advantage of not needing any HTTP/S infrastructure.
+
+My architecture expects HTTP apps, and handles certs with NGINX instances, so I modified `cluster.yaml` to present the dashboard over HTTP. This is not required if you have downstream NGINX instances configured not to verify certs (or you pull this cert and shove it into your trusted certs).
+```
+  dashboard:
+    enabled: true
+    port: 8080
+    ssl: false
+```
+
+**Node Port** (31222):
+```
+kubectl create -f ./kubernetes/rook/cluster/ceph-dashboard-nodeport.yaml
+```
+
+**Ingress**:
+```
+missing
+```
+
+Get password (username `admin`) using:
+```
+kubectl -n rook-ceph get secret rook-ceph-dashboard-password -o jsonpath="{['data']['password']}" | base64 --decode && echo
+```
+
+#### Rook Storage Class
+This step requires _either_ the **Internal** or **External** Cluster to be added.
+
+
+
+### NFS Cluster Storage (Attached)
+Hey, future Ben! Check this output from installing Rook!
+
+> The CSI operator will manage the CSI driver lifecycle for RBD, CephFS, and NFS drivers.
+
+You should _probably_ rewrite this section 🙃
+
+As Kubernetes [does not maintain](https://kubernetes.io/docs/concepts/storage/storage-classes/#provisioner) an NFS "Internal Provisioner", an external one must be used and according to [stackoverflow](https://stackoverflow.com/questions/43295344/kubernetes-dynamic-persistent-volume-provisioning-using-nfs), [subdir](https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner) seems to be the way to go. 
 
 This guide expects that you have an NFS share already, which,
 
@@ -475,130 +632,8 @@ chmod 700 get_helm.sh
 
 ---
 
-# OLD WIKI: LEGACY DOCUMENTATION
-This section was written over time, then split into the "wiki" and maintained there. That turned out to be _garbage_, so I migrated it back here. Now, I have to merge them; everything below this line is legacy or not yet integrated.
+# Other Notes/Theory
+This section documents decisions and lessons learned that will probably save you some grey hairs.
 
-
-
-# New node
-This had to be done with two playbooks and a command to avoid annoying prompts/errors. This guide assumes you have already provisioned the cluster nodes, and they are able to communicate with one another. See 
-
-## Node Prep
-
-**SWAP** is a royal bastard. I haven't found a good way to automate its removal, and it doesn't consistently get created so, if you're unsure, be safe. SSH into the node, `sudo -i`, run `swapon -s`; if you get a Filename back, `nano /etc/fstab` and comment out the "swap" line, then bounce the node. I'll automate this when it becomes a sizeable pain in the rear.
-
-1. Add the key to the new machine (note, change the IP, *leave the trailing comma*):
-
-`ansible-playbook -i 10.0.0.1, ./ansible/playbooks/add-ssh-key.yaml`
-
-2. Add the node to `./ansible/inventory.yaml`, ideally creating a new group. You should be able to figure that out yourself.
-
-3. Run the main book. This takes a *hot* minute.
-
-`ansible-playbook -i ./ansible/inventory.yaml ./kubernetes/provision_k8s_node.yaml`
-
-You can restrict the script to only OOBE your node with,
-
-`ansible-playbook -i ./ansible/inventory.yaml --limit NODE_GROUP_NAME ./kubernetes/provision_k8s_node.yaml`
-
-At this point, you will
-
-1. have nothing set up
-    * Build management machine
-    * New Cluster
-    * Join nodes to cluster
-2. have a management machine but no cluster
-    * New Cluster
-    * Join nodes to cluster
-3. have a cluster
-    * Join nodes to cluster
-
-## Join node to cluster
-You can paste the `kubeadm join ...` command the master node gave you directly into a newly provisioned worker node; it will join the cluster and automations will continue configuring it.
-
-If you're like me, you lost the original token it gave you. Run this on a machine authorized to control the cluster (master or management machine)
-
-`kubeadm token create --print-join-command`
-
-The output of this command can pasted directly into a node, once it's finished the init playbook. Adding `sudo` in front will increase the odds of it working.
-
-### Node maintenance
-If the cluster is misbehaving, you can bounce it with,
-
-Everything: `ansible-playbook -i ./ansible/inventory.yaml ./ansible/playbooks/k8s_nodes bounce.yaml`
-
-Nodes: `ansible-playbook -i ./ansible/inventory.yaml --limit k8s_nodes bounce.yaml`
-
-Node: `ansible-playbook -i inventory.yaml --limit $BAD_NODE bounce.yaml`
-
-
-You can use this command to blindly update the nodes to the latest software. Kubernetes *strongly* discourages this (instead encouraging stateful package versioning), but I don't see their Ansible playbook in your terminal, so...
-
-`ansible-playbook -i inventory.yaml --tags "update" provision_k8s_node.yaml`
-
-If the cluster is misbehaving, you can bounce it with,
-
-`ansible-playbook -i inventory.yaml --limit k8s_nodes bounce.yaml`
-
-# New Cluster
-Not part of the playbook, since Ansible doesn't have a Kubernetes module, but odds are if you're here, this is the next step.
-
-```
-# SSH to the node you want as master
-#TODO: Test if this works with DNS (#TODO, fix DNS...)
-ssh -i ~/.ssh/id_ed25519_ansible root@$MASTER_NODE_IP
-
-# Create the cluster (WARNING: This command outputs a `kubeadm join ...` command. **SAVE THAT**)
-kubeadm init --apiserver-advertise-address=$MASTER_NODE_IP --pod-network-cidr=192.168.0.0/16
-
-```
-
-## Grab the cluster's administration/connection info
-Note: copy this into whatever host you use to administer the cluster. Run this from your management machine
-
-```
-mkdir -p $HOME/.kube
-scp -i ~/.ssh/id_ed25519_ansible root@$MASTER_NODE_IP:/etc/kubernetes/admin.conf ~/.kube/config
-#sudo chown $(id -u):$(id -g) $HOME/.kube/config
-```
-
-
-`kubectl` will now connect to the newly created cluster, you can test it with `kubectl get nodes` To install kubectl, see below.
-
-## Configure cluster networking
-
-After doing this a few times, I think the best option is to just use canal.
-
-Install the Tigera operator
-```
-kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.1/manifests/tigera-operator.yaml
-```
-
-Install Calico: Download the custom resources yaml, update the IP to match the range provisioned in the cluster, then deploy it.
-```
-wget -4 https://raw.githubusercontent.com/projectcalico/calico/v3.28.1/manifests/custom-resources.yaml
-nano custom-resources
-kubectl create -f ./custom-resources.yaml
-```
-
-## Install Helm
-I did not document this; IIRC this was fire-and-forget. Helm isn't *technically* needed, it's only useful if you want to use the cluster to run stuff.
-
-## Install an ingress controller
-The [quick start](https://kubernetes.github.io/ingress-nginx/deploy/) is right. Run this:
-```
-helm upgrade --install ingress-nginx ingress-nginx \
-  --repo https://kubernetes.github.io/ingress-nginx \
-  --namespace ingress-nginx --create-namespace
-```
-
-Test it:
-```
-$ kubectl get pods --namespace=ingress-nginx
-NAME                                       READY   STATUS    RESTARTS   AGE
-ingress-nginx-controller-9756f5bd9-lkr5p   1/1     Running   0          9m28s
-```
-
-The Docu says "A few pods". One is a few... right?
-
-
+## GitHub vs GitLab
+I really like the self-hosted approach, and wanted to boast running my own full dev stack. However, while building out the deployment pipelines, I came across some serious limitations discussed in this [reddit thread](https://www.reddit.com/r/gitlab/comments/11dqm9m/gitlab_runenrs_in_k8s_the_correct_method/). Basically, GitLab's CI/CD integrations rely heavily on infrastructure provisioned in GitLab; you have to build-your-own runner to configure K8s, then host that runner (either on the GitLab VM or spin it up in the cluster). This is in stark contrast to GitHub Actions Runner Controller (ARC), which entirely automates provisioning and scaling pods needed to execute CI/CD Pipelines. This was the deciding point for me that pushed me off GitLab for managing K8s.
