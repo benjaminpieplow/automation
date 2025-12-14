@@ -460,7 +460,7 @@ Changes I made,
 
 I'm sure more will reveal themselves once I get to making errors. Deploy the cluster with,
 ```
-kubectl create -f cluster.yaml
+kubectl apply -f cluster.yaml
 ```
 
 #### Rook External Cluster
@@ -480,18 +480,74 @@ My architecture expects HTTP apps, and handles certs with NGINX instances, so I 
 
 **Node Port** (31222):
 ```
-kubectl create -f ./kubernetes/rook/cluster/ceph-dashboard-nodeport.yaml
+kubectl apply -f ./kubernetes/rook/cluster/ceph-dashboard-nodeport.yaml
 ```
 
 **Ingress**:
 ```
-missing
+kubectl apply -f ./kubernetes/rook/cluster/ceph-dashboard-ingress.yaml
 ```
 
+Note: I have customized `ingress` for an HTTP-hosted dashboard. If you set `ssl: true` in `cluster.yaml`, you will need to uncomment the annotations (and likely adjust your ingress to allow those certs).
+
+
+#### Other Ceph tools
 Get password (username `admin`) using:
 ```
 kubectl -n rook-ceph get secret rook-ceph-dashboard-password -o jsonpath="{['data']['password']}" | base64 --decode && echo
 ```
+
+##### Krew Plugin
+Krew is a `kubectl` addon manager. The install is [sketchy](https://krew.sigs.k8s.io/docs/user-guide/setup/install/) but works.
+```
+(
+  set -x; cd "$(mktemp -d)" &&
+  OS="$(uname | tr '[:upper:]' '[:lower:]')" &&
+  ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/\(arm\)\(64\)\?.*/\1\2/' -e 's/aarch64$/arm64/')" &&
+  KREW="krew-${OS}_${ARCH}" &&
+  curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/${KREW}.tar.gz" &&
+  tar zxvf "${KREW}.tar.gz" &&
+  ./"${KREW}" install krew
+)
+```
+
+Add to PATH,
+```
+export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
+```
+
+Install Ceph plugin,
+```
+kubectl krew install rook-ceph
+```
+
+You can now execute `ceph` commands in the `kubectl` context,
+```
+kubectl rook-ceph ceph status
+```
+
+##### Wipe Disks
+Wipe the data off a drive and let Ceph re-ingest it. Warning: You _can_ do this on all drives in the cluster simultaneously, if the data on those drives is of no importance to you.
+
+List devices, pick out your "sdX". Then, check if it is mounted.
+```
+lsblk
+lsblk -f /dev/sdX
+```
+
+Hit the disk,
+```
+# Remove filesystem signatures
+wipefs -a /dev/sdb
+
+# Remove LVM metadata if present
+pvremove -ff -y /dev/sdb || true
+
+# Discard (if SSD / thin-provisioned)
+blkdiscard /dev/sdb -f || true
+
+```
+
 
 #### Rook Storage Class
 This step requires _either_ the **Internal** or **External** Cluster to be added.
