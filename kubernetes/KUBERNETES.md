@@ -478,7 +478,24 @@ My architecture expects HTTP apps, and handles certs with NGINX instances, so I 
     ssl: false
 ```
 
+**Node Port** (31222):
+```
+kubectl apply -f ./kubernetes/rook/cluster/ceph-dashboard-nodeport.yaml
+```
+
+**Ingress**:
+```
+kubectl apply -f ./kubernetes/rook/cluster/ceph-dashboard-ingress.yaml
+```
+
+Note: I have customized `ingress` for an HTTP-hosted dashboard. If you set `ssl: true` in `cluster.yaml`, you will need to uncomment the annotations (and likely adjust your ingress to allow those certs).
+
+
 #### Other Ceph tools
+Get password (username `admin`) using:
+```
+kubectl -n rook-ceph get secret rook-ceph-dashboard-password -o jsonpath="{['data']['password']}" | base64 --decode && echo
+```
 
 ##### Krew Plugin
 Krew is a `kubectl` addon manager. The install is [sketchy](https://krew.sigs.k8s.io/docs/user-guide/setup/install/) but works.
@@ -531,20 +548,6 @@ blkdiscard /dev/sdb -f || true
 
 ```
 
-**Node Port** (31222):
-```
-kubectl apply -f ./kubernetes/rook/cluster/ceph-dashboard-nodeport.yaml
-```
-
-**Ingress**:
-```
-missing
-```
-
-Get password (username `admin`) using:
-```
-kubectl -n rook-ceph get secret rook-ceph-dashboard-password -o jsonpath="{['data']['password']}" | base64 --decode && echo
-```
 
 #### Rook Storage Class
 This step requires _either_ the **Internal** or **External** Cluster to be added.

@@ -10,15 +10,11 @@ metadata:
     #   proxy_ssl_verify off;
 spec:
   ingressClassName: nginx
-  # tls:
-  #  - hosts:
-  #    - dashboard.dev.bergermeister.at
-    #  secretName: dashboard.dev.bergermeister.at
   rules:
   - host: dev.bergermeister.at
     http:
       paths:
-      - path: /
+      - path: /ceph-dashboard
         pathType: Prefix
         backend:
           service:
