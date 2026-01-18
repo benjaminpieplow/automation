@@ -376,6 +376,27 @@ When creating upstream servers:
 
 - If using port `31443`, make sure to either uncheck "TLS: Verify Certificate", or ensure NGINX trusts the server certificates
 
+## ArgoCD
+ArgoCD should be used to lifecycle all your deployments into the cluster with git-ops. This will stop you from losing track of what you have deployed; up to and including other infrastructure not required for ArgoCD itself. (Note: In the Dev cluster, I deployed storage first; this should not be required as ArgoCD does not provision PVs)
+
+ArgoCD will be managed by Helm. Make sure to customize the `argocd-values.yaml`, then run
+```
+helm repo add argo https://argoproj.github.io/argo-helm
+helm repo update
+helm upgrade --install argocd argo/argo-cd \
+  -n argocd \
+  --create-namespace \
+  -f ./kubernetes/argocd/argocd-values.yaml
+```
+
+The YAML as supplied will integrate with the NGINX ingress created above. This will allow you to configure the upstream LB to expose the dashboard, where it is possible to configure managed deployments.
+
+Get the password, and log in:
+```
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+```
+
+
 ## Cluster storage
 Recommended reading: [Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes) and [Storage Classes](https://kubernetes.io/docs/concepts/storage/storage-classes). ~~Through some dark magic, NFS seems to punch in the same weight-class as AzureFile and CephFS, so I will use that.~~ That statement is true until you (try to ) run a database on NFS storage. At this point, the database will die, you will lose some hours, and configure something else; to prevent those grey hairs preemptively, I will provide guidance on how to configure both, and advise when to use each:
 - Rook: Everything possible
@@ -410,7 +431,7 @@ Rook is designed to work with Kubernetes in a node-level hyper-converged setup, 
 
 ![Storage Diagram](./docs/rook-hycv-nodes.drawio.svg)
 
-The Rook Internal Cluster deployment expects disks mounted to the Nodes, I use the term "node-level hyper-converged" to describe this infrastructure as the node becomes an atomic fault/scale unit. This is the easiest to set up, and the most practical solution if your kubernetes cluster runs bare-metal. However, it will be less performant and more complex if your Kubernetes nodes are virtualized, as you will need to either pass-through storage or "pay" for the processing overhead of virtualized disks. In this case, it would be more practical to use an External Cluster (hyper-converged virtualized or classic Compute - Network - Storage infrastructure) mounted by Rook.
+The Rook Internal Cluster deployment expects disks mounted to the Nodes, I use the term "node-level hyper-converged" to describe this infrastructure as the node becomes an atomic fault/scale unit. This is the easiest to set up, and the most practical solution if your kubernetes cluster runs bare-metal. However, it will be less performant and more complex if your Kubernetes nodes are virtualized, as you will need to either pass-through storage or "pay" for the processing overhead of virtualized disks, and need to pin nodes to hosts to maintain fault domains. In this case, it would be more practical to use an External Cluster (hyper-converged virtualized or classic Compute - Network - Storage infrastructure) mounted by Rook.
 
 #### Storage Classes
 When workloads need storage, they create a Persistent Volume to store their data. The pods then use a Persistent Volume Claim to "attach" to the PV. A Persistent Volume uses a specific _class_ of storage; this allows workloads to optimize what kind of storage they need. I recommend planning out your storage infrastructure, and creating a naming convention 
@@ -488,42 +509,13 @@ kubectl apply -f ./kubernetes/rook/cluster/ceph-dashboard-nodeport.yaml
 kubectl apply -f ./kubernetes/rook/cluster/ceph-dashboard-ingress.yaml
 ```
 
-Note: I have customized `ingress` for an HTTP-hosted dashboard. If you set `ssl: true` in `cluster.yaml`, you will need to uncomment the annotations (and likely adjust your ingress to allow those certs).
+Note: I have customized `ingress` for an HTTP-hosted dashboard. If you set `ssl: true` in `cluster.yaml`, you will need to uncomment the annotations (and likely adjust your ingress to allow those certs). You will also need to change the FQDN for this ingress.
 
 
 #### Other Ceph tools
 Get password (username `admin`) using:
 ```
 kubectl -n rook-ceph get secret rook-ceph-dashboard-password -o jsonpath="{['data']['password']}" | base64 --decode && echo
-```
-
-##### Krew Plugin
-Krew is a `kubectl` addon manager. The install is [sketchy](https://krew.sigs.k8s.io/docs/user-guide/setup/install/) but works.
-```
-(
-  set -x; cd "$(mktemp -d)" &&
-  OS="$(uname | tr '[:upper:]' '[:lower:]')" &&
-  ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/\(arm\)\(64\)\?.*/\1\2/' -e 's/aarch64$/arm64/')" &&
-  KREW="krew-${OS}_${ARCH}" &&
-  curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/${KREW}.tar.gz" &&
-  tar zxvf "${KREW}.tar.gz" &&
-  ./"${KREW}" install krew
-)
-```
-
-Add to PATH,
-```
-export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
-```
-
-Install Ceph plugin,
-```
-kubectl krew install rook-ceph
-```
-
-You can now execute `ceph` commands in the `kubectl` context,
-```
-kubectl rook-ceph ceph status
 ```
 
 ##### Wipe Disks
@@ -686,10 +678,54 @@ chmod 700 get_helm.sh
 ./get_helm.sh
 ```
 
----
+## Install the Krew Plugin
+Krew is a `kubectl` addon manager. The install is [sketchy](https://krew.sigs.k8s.io/docs/user-guide/setup/install/) but works.
+```
+(
+  set -x; cd "$(mktemp -d)" &&
+  OS="$(uname | tr '[:upper:]' '[:lower:]')" &&
+  ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/\(arm\)\(64\)\?.*/\1\2/' -e 's/aarch64$/arm64/')" &&
+  KREW="krew-${OS}_${ARCH}" &&
+  curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/${KREW}.tar.gz" &&
+  tar zxvf "${KREW}.tar.gz" &&
+  ./"${KREW}" install krew
+)
+```
+
+Add to PATH,
+```
+export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
+```
+## Install the Ceph plug
+The Ceph plugin 
+```
+kubectl krew install rook-ceph
+```
+
+You can now execute `ceph` commands in the `kubectl` context (note: this needs a functioning Ceph cluster),
+```
+kubectl rook-ceph ceph status
+```
+
+## Install ArgoCD CLI
+Installs the ArgoCD CLI tools. Sadly, not available for Krew. Why does every app use its own package manager? Are these AAA games? No, this is Linux.
+```
+# Install Homebrew
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> ~/.bashrc
+
+# Experimental: Try to update path without needing to nuke your terminal. If this fails, close all open shells 🫤
+source ~/.bashrc
+
+# Install argocd
+brew install argocd
+```
 
 # Other Notes/Theory
 This section documents decisions and lessons learned that will probably save you some grey hairs.
 
 ## GitHub vs GitLab
-I really like the self-hosted approach, and wanted to boast running my own full dev stack. However, while building out the deployment pipelines, I came across some serious limitations discussed in this [reddit thread](https://www.reddit.com/r/gitlab/comments/11dqm9m/gitlab_runenrs_in_k8s_the_correct_method/). Basically, GitLab's CI/CD integrations rely heavily on infrastructure provisioned in GitLab; you have to build-your-own runner to configure K8s, then host that runner (either on the GitLab VM or spin it up in the cluster). This is in stark contrast to GitHub Actions Runner Controller (ARC), which entirely automates provisioning and scaling pods needed to execute CI/CD Pipelines. This was the deciding point for me that pushed me off GitLab for managing K8s.
+I really like the self-hosted approach, and wanted to boast running my own full dev stack. However, while building out the deployment pipelines, I came across some serious limitations discussed in this [reddit thread](https://www.reddit.com/r/gitlab/comments/11dqm9m/gitlab_runenrs_in_k8s_the_correct_method/). Basically, GitLab's CI/CD integrations rely heavily on infrastructure provisioned in GitLab; you have to build-your-own runner to configure K8s, then host that runner (either on the GitLab VM or spin it up in the cluster). This is in stark contrast to GitHub Actions Runner Controller (ARC), which entirely automates provisioning and scaling pods needed to execute CI/CD Pipelines using kubernetes-native constructs. This was the deciding point for me that pushed me off GitLab for managing K8s.
+
+## ArgoCD vs GitHub Actions Runner Controller
+Although still intending to support GH-ARC, it appears ArgoCD is better suited for stateful cluster management; whereas with ARC I would be writing complex deployment logic and scripting `kubectl apply` or `helm upgrade` tasks for each workload, ArgoCD offers a framework in which the cluster's state can be defined using declarative language and _it_ takes care of the execution. They do not seem to conflict with each other; rather they cooperate. ArgoCD will deploy the ARC infrastructure, and when a workload needs to build a container image the task will go to ARC.

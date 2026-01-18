@@ -1,0 +1,15 @@
+global:
+  domain: dev.bergermeister.at # Change this!
+
+certificate:
+  enabled: false
+
+server:
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    path: /argocd
+    pathType: Prefix
+  extraArgs:
+    - --insecure
+    - --rootpath=/argocd
